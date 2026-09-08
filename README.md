@@ -6,6 +6,11 @@
 
 > 本專案是 Windows 單機／原型驗證版。正式上線前，建議串接學校會員系統、正式網域、權限控管、備份及資安機制。
 
+![學生前台](docs/images/01-student-front.png)
+
+*學生前台 `/`：左上角品牌方塊、側欄分類與對話紀錄、右側對話區與需求單入口。
+版面、文案、顏色、圖片全部可在 `/design` 後台調整，不需要改程式碼。*
+
 ## 目錄
 
 - [功能總覽](#功能總覽)
@@ -50,6 +55,11 @@ Set-ExecutionPolicy -Scope Process Bypass; .\setup.ps1; .\start.ps1
 - 結案後可給 1～5 星評分及補充意見。
 - 1～2 星會自動重新開啟工單，交回原處室確認。
 
+![學生前台手機版](docs/images/02-student-mobile.png)
+
+*同一頁在手機（390×844）的樣子：寬度 900px 以下改為單欄，側欄收合成上方橫向捲動
+的分類列，右下角出現「＋」浮動新對話鈕。*
+
 ### 處室端
 
 - 每個處室使用不同的專屬密碼登入，只能查看自己的工單。
@@ -58,6 +68,10 @@ Set-ExecutionPolicy -Scope Process Bypass; .\setup.ps1; .\start.ps1
 - 只有實際轉派才計入轉單數；學生開單與 AI 初始分派不計入。
 - 可自行修改本處室通知 Email，不能修改其他處室。
 - 工單轉派後，新處室會收到包含工單連結及該處室密碼的通知信。
+
+![處室登入](docs/images/04-office-login.png)
+
+*處室端 `/office`：所有處室共用同一入口，各自輸入專屬密碼，登入後只看得到自己的需求單。*
 
 ### 總管理員端
 
@@ -71,7 +85,23 @@ Set-ExecutionPolicy -Scope Process Bypass; .\setup.ps1; .\start.ps1
 - 可從 Google 試算表、CSV／Excel 檔或直接貼上匯入常見問題，匯入前先預覽新增與覆蓋的筆數。
 - 可在後台逐筆檢視、搜尋、修改或刪除常見問題，存檔後前台與 AI 立即使用新資料。
 
+![管理後台登入](docs/images/05-admin-login.png)
+
+*總管理員後台 `/admin`：未登入時只有營運數據總覽的外框，輸入管理密碼後才載入需求單資料。
+右上角可切換統計區間、跳到常見問題管理、匯出 CSV。*
+
+![常見問題管理登入](docs/images/06-faq-admin-login.png)
+
+*常見問題管理 `/faq-admin`：與總管理員同一組密碼。可匯入 CSV、逐題編輯與刪除，
+存檔後會重新計算向量索引。*
+
 ### 外觀設定端
+
+![外觀後台登入](docs/images/03-design-login.png)
+
+*外觀後台 `/design` 登入畫面。「記住密碼，下次直接進入」預設勾選：勾選會把密碼存進
+該台電腦瀏覽器的 `localStorage`，不勾則只存 `sessionStorage`（關掉分頁就忘記）。
+登入後右上角有「登出」可清除。公用電腦請不要勾。*
 
 - 進入 `/design` 可用管理員密碼登入，不需改程式碼就能調整學生端外觀。
 - 可調整配色、字體、字級、圓角、按鈕與對話框樣式。
@@ -387,6 +417,12 @@ rags/
 ## API 摘要
 
 完整文件：<http://127.0.0.1:8001/docs>
+
+![外觀 API](docs/images/07-api-design.png)
+
+*Swagger UI 的外觀設定 API 區段。不需登入即可查看介面定義，實際呼叫需帶
+`X-Design-Token` 標頭。其中 `POST/DELETE /api/design/asset/{kind}` 是圖片上傳與移除，
+`kind` 可為 `logo` / `page_bg` / `avatar_ai` / `avatar_user`。*
 
 | 方法 | 路徑 | 說明 |
 |---|---|---|
