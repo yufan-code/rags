@@ -9,6 +9,7 @@
 ## 目錄
 
 - [功能總覽](#功能總覽)
+- [畫面與功能說明](docs/UI-GUIDE.md)（逐項截圖說明）
 - [系統架構](#系統架構)
 - [使用技術](#使用技術)
 - [系統需求](#系統需求)
@@ -77,8 +78,15 @@ Set-ExecutionPolicy -Scope Process Bypass; .\setup.ps1; .\start.ps1
 - 可改寫學生端所有介面文案（標題、歡迎語、按鈕、工單視窗欄位名稱等）。
 - 可自訂側欄分類與範例問題清單。
 - 可加入自訂 CSS；儲存前會先過濾 `@import` 與 `</style>` 等危險寫法。
+- 可上傳圖片替換網站 Logo、頁面背景圖，以及對話框兩側的 AI／使用者頭像
+  （PNG／JPG／GIF／WEBP／SVG，單檔 3 MB 以內，存於 `data/design-assets/`，
+  以 `/media/<檔名>` 提供）。
+- 可直接編輯 8 支原始 CSS 檔，含系統自動產生的 `site-theme.css`；
+  改壞了隨時按「還原原始檔」救回來。
+- 登入可勾選「記住密碼」，右上角提供「登出」清除。
 - 支援即時預覽，滿意再儲存；也可一鍵還原預設值。
 - 設定寫入 `data/site-config.json`，由 `/site-theme.css` 動態套用。
+- 每個畫面的逐項說明與截圖見 [docs/UI-GUIDE.md](docs/UI-GUIDE.md)。
 
 ### Email 與知識庫成長
 

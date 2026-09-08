@@ -1,6 +1,6 @@
 <!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>前台外觀後台 · 校務 FAQ</title>
-<link rel="stylesheet" href="/static/design-admin.css?v=20260907c">
+<link rel="stylesheet" href="/static/design-admin.css?v=20260908103628">
 </head><body>
 
 <div id="login" class="login-wrap">
@@ -9,9 +9,10 @@
     <h1>前台外觀後台</h1>
     <p>修改學生前台的標題、文案、顏色與 CSS。</p>
     <label>後台密碼<input id="login-token" type="password" autocomplete="current-password" required></label>
+    <label class="remember"><input id="login-remember" type="checkbox" checked>記住密碼，下次直接進入</label>
     <p id="login-error" class="login-error"></p>
     <button type="submit">登入</button>
-    <small>此密碼與「總管理員後台」分開管理，可獨立交給美編或行政人員。</small>
+    <small>此密碼與「總管理員後台」分開管理，可獨立交給美編或行政人員。<br>勾選「記住密碼」會把密碼存在這台電腦的瀏覽器裡，公用電腦請不要勾，或用完按右上角「登出」清掉。</small>
   </form>
 </div>
 
@@ -20,6 +21,7 @@
     <div class="bar-brand"><span class="bar-mark">FAQ</span><div><strong>前台外觀後台</strong><small id="saved-at">尚未儲存</small></div></div>
     <div class="bar-actions">
       <a class="ghost" href="/" target="_blank" rel="noopener">開啟前台 ↗</a>
+      <button id="btn-logout" class="ghost" type="button">登出</button>
       <button id="btn-reset" class="ghost danger" type="button">全部還原預設</button>
       <button id="btn-save" class="primary" type="button">儲存並套用</button>
     </div>
@@ -30,6 +32,7 @@
       <nav class="tabs">
         <button class="tab active" data-tab="text" type="button">文案 / 標題</button>
         <button class="tab" data-tab="theme" type="button">顏色與樣式</button>
+        <button class="tab" data-tab="assets" type="button">Logo / 背景圖</button>
         <button class="tab" data-tab="lists" type="button">分類與快捷</button>
         <button class="tab" data-tab="css" type="button">自訂 CSS</button>
         <button class="tab" data-tab="files" type="button">原始 CSS 檔</button>
@@ -41,6 +44,7 @@
       </div>
 
       <div class="tab-panel" data-panel="theme" hidden>
+        <p class="hint warn" id="override-note" hidden>目前 <code>site-theme.css</code> 已被手動覆寫，這一頁的顏色設定<strong>不會生效</strong>。要恢復自動產生，請到「原始 CSS 檔」分頁選 <code>site-theme.css</code> 後按「還原原始檔」。</p>
         <p class="hint">顏色可直接點色塊挑選，或輸入 <code>#RRGGBB</code>。數字欄位單位為 px。</p>
         <div class="preset-row">
           <span>快速配色：</span>
@@ -50,6 +54,14 @@
           <button class="preset" data-preset="dark" type="button">深色模式</button>
         </div>
         <div id="theme-fields"></div>
+      </div>
+
+      <div class="tab-panel" data-panel="assets" hidden>
+        <p class="hint">上傳後會<strong>立即</strong>寫入設定並套用到前台，不需要再按「儲存並套用」。Logo 會取代左上角的文字方塊，背景圖會鋪滿整個頁面。<br>可用 PNG / JPG / GIF / WEBP / SVG，單檔 3 MB 以內。移除圖片後會自動回到原本的文字方塊與漸層背景。</p>
+        <div id="asset-cards" class="asset-cards"></div>
+        <h2>圖片顯示設定</h2>
+        <p class="hint">這幾個欄位跟其他樣式一樣，調整後要按右上角「儲存並套用」才會上線。</p>
+        <div id="asset-theme-fields"></div>
       </div>
 
       <div class="tab-panel" data-panel="lists" hidden>
@@ -100,5 +112,5 @@
   <p id="toast" class="toast" hidden></p>
 </div>
 
-<script src="/static/design-admin.js?v=20260907c" defer></script>
+<script src="/static/design-admin.js?v=20260908103628" defer></script>
 </body></html>

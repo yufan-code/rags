@@ -41,6 +41,8 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="校務 FAQ 智慧搜尋", lifespan=lifespan)
 frontend = PROJECT_ROOT / "frontend"
 app.mount("/static", StaticFiles(directory=frontend), name="static")
+theme_service.ASSET_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/media", StaticFiles(directory=theme_service.ASSET_DIR), name="media")
 
 
 @app.get("/", include_in_schema=False)
@@ -81,7 +83,7 @@ def design_page() -> FileResponse:
 
 @app.get("/site-theme.css", include_in_schema=False)
 def site_theme_css() -> Response:
-    return Response(content=theme_service.build_css(), media_type="text/css",
+    return Response(content=theme_service.render_site_css(), media_type="text/css",
                     headers={"Cache-Control": "no-store, max-age=0"})
 
 
@@ -110,7 +112,9 @@ def design_config_get(x_design_token: str = Header(default="")):
     require_design(x_design_token)
     cfg = theme_service.load_config()
     return {"config": cfg, "theme_fields": theme_service.theme_fields(),
-            "text_fields": theme_service.text_fields()}
+            "text_fields": theme_service.text_fields(),
+            "asset_fields": theme_service.asset_fields(),
+            "css_override": theme_service.css_override_exists()}
 
 
 @app.put("/api/design/config")
@@ -168,6 +172,31 @@ def design_css_restore(name: str, x_design_token: str = Header(default="")):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     logger.info("還原原始樣式檔 file=%s", name)
     return info
+
+
+@app.post("/api/design/asset/{kind}")
+async def design_asset_upload(kind: str, file: UploadFile = File(...),
+                              x_design_token: str = Header(default="")):
+    """上傳 Logo 或頁面背景圖。"""
+    require_design(x_design_token)
+    data = await file.read()
+    try:
+        cfg = theme_service.save_asset(kind, file.filename, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info("更新前台圖片 kind=%s bytes=%d", kind, len(data))
+    return {"config": cfg}
+
+
+@app.delete("/api/design/asset/{kind}")
+def design_asset_delete(kind: str, x_design_token: str = Header(default="")):
+    require_design(x_design_token)
+    try:
+        cfg = theme_service.clear_asset(kind)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info("移除前台圖片 kind=%s", kind)
+    return {"config": cfg}
 
 
 @app.post("/api/design/reset")

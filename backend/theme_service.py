@@ -12,9 +12,17 @@ CONFIG_PATH = PROJECT_ROOT / "data" / "site-config.json"
 TOKEN_PATH = PROJECT_ROOT / "theme-admin-token.txt"
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 CSS_BACKUP_DIR = PROJECT_ROOT / "data" / "css-original"
+ASSET_DIR = PROJECT_ROOT / "data" / "design-assets"
+ASSET_URL_PREFIX = "/media/"
+
+# site-theme.css 平常由 build_css() 即時產生，沒有實體檔案。
+# 後台把它整份存檔時內容寫進這份覆寫檔，前台改吃這一份；按「還原原始檔」就刪掉。
+GENERATED_CSS = "site-theme.css"
+CSS_OVERRIDE_PATH = PROJECT_ROOT / "data" / "site-theme-override.css"
 
 # 可在後台直接編輯的原始 CSS 檔（白名單，其他檔案一律拒絕）
 CSS_FILES = {
+    GENERATED_CSS: "「顏色與樣式」自動產生的主題檔（存檔後改吃手寫版本，色票設定會停用）",
     "style.css": "學生前台主樣式（版面、側欄、對話框、輸入區）",
     "llm.css": "學生前台 AI 回答與對話紀錄樣式",
     "ticket.css": "學生前台需求單視窗與需求單提示樣式",
@@ -23,6 +31,17 @@ CSS_FILES = {
     "office-ticket.css": "處室需求單處理頁樣式",
     "admin.css": "總管理員後台樣式",
 }
+
+# 可在後台上傳替換的圖片：key -> (檔名前綴, 中文說明, 尺寸建議)
+ASSET_KINDS = {
+    "logo": ("logo", "網站 Logo（取代左上角方塊）", "建議正方形去背 PNG / SVG，例如 256×256"),
+    "page_bg": ("page-bg", "頁面背景圖", "建議 1920×1080 以上的橫式圖片"),
+    "avatar_ai": ("avatar-ai", "AI 對話頭像（取代圓形的「AI」）", "建議正方形去背 PNG / SVG，例如 128×128"),
+    "avatar_user": ("avatar-user", "使用者對話頭像（取代圓形的「你」）", "建議正方形去背 PNG / SVG，例如 128×128"),
+}
+ASSET_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
+MAX_ASSET_BYTES = 3 * 1024 * 1024
+ASSET_URL_RE = re.compile(r"^/media/[A-Za-z0-9._-]{1,80}$")
 
 DEFAULT_TEXT = {
     "page_title": "校務 FAQ 智慧問答",
@@ -82,6 +101,11 @@ THEME_FIELDS = {
     "page_bg_to":         ("color", "#ddd8d0", "頁面背景漸層（迄）", "背景"),
     "paper":              ("color", "#fbf8f3", "主面板底色", "背景"),
     "composer_bg":        ("color", "#f5f0e9", "輸入區底色", "背景"),
+    "logo_size":          ("num",   72, "Logo 顯示大小 (px)", "圖片"),
+    "logo_radius":        ("num",   16, "Logo 圓角 (px)", "圖片"),
+    "page_bg_mode":       ("select", "cover", "背景圖顯示方式", "圖片", ["cover", "contain", "tile"]),
+    "page_bg_dim":        ("num",   0, "背景圖遮罩濃度 (%)", "圖片"),
+    "avatar_size":        ("num",   43, "對話頭像大小 (px)", "圖片"),
     "ink":                ("color", "#292724", "主要文字色", "文字"),
     "muted":              ("color", "#77716a", "次要文字色", "文字"),
     "line":               ("color", "#2d2a27", "外框線顏色", "外框"),
@@ -123,6 +147,7 @@ def default_config() -> dict:
         "suggestions": [dict(row) for row in DEFAULT_SUGGESTIONS],
         "categories": [dict(row) for row in DEFAULT_CATEGORIES],
         "theme": dict(DEFAULT_THEME),
+        "assets": {key: "" for key in ASSET_KINDS},
         "custom_css": "",
     }
 
@@ -152,6 +177,11 @@ def load_config() -> dict:
                          "query": str(row.get("query", "")).strip()}
                         for row in rows
                         if isinstance(row, dict) and str(row.get("label", "")).strip()]
+    if isinstance(saved.get("assets"), dict):
+        for key in ASSET_KINDS:
+            url = str(saved["assets"].get(key) or "").strip()
+            if ASSET_URL_RE.match(url) and (ASSET_DIR / url[len(ASSET_URL_PREFIX):]).exists():
+                cfg["assets"][key] = url
     if isinstance(saved.get("custom_css"), str):
         cfg["custom_css"] = saved["custom_css"]
     cfg["updated_at"] = str(saved.get("updated_at") or "")
@@ -160,13 +190,17 @@ def load_config() -> dict:
 
 def _clean_theme(raw: dict) -> dict:
     theme = dict(DEFAULT_THEME)
-    for key, (kind, default, _label, _group) in THEME_FIELDS.items():
+    for key, spec in THEME_FIELDS.items():
+        kind, default = spec[0], spec[1]
         if key not in raw:
             continue
         value = raw[key]
         if kind == "color":
             value = str(value).strip()
             theme[key] = value if COLOR_RE.match(value) else default
+        elif kind == "select":
+            value = str(value).strip()
+            theme[key] = value if value in spec[4] else default
         elif kind == "num":
             try:
                 theme[key] = max(0, min(200, int(float(value))))
@@ -230,10 +264,82 @@ def reset_config() -> dict:
     return _write(default_config())
 
 
+def _hex_to_rgba(value: str, alpha: float) -> str:
+    raw = str(value or "").lstrip("#")
+    if len(raw) == 3:
+        raw = "".join(ch * 2 for ch in raw)
+    try:
+        r, g, b = int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
+    except (ValueError, IndexError):
+        r = g = b = 0
+    return "rgba(%d,%d,%d,%.2f)" % (r, g, b, max(0.0, min(1.0, alpha)))
+
+
+def _body_background(t: dict, assets: dict) -> str:
+    """有背景圖就鋪圖（可加遮罩），沒有就維持原本的漸層。"""
+    url = str(assets.get("page_bg") or "")
+    if not ASSET_URL_RE.match(url):
+        return "body{background:linear-gradient(135deg,%s,%s);}" % (t["page_bg_from"], t["page_bg_to"])
+    layers = []
+    try:
+        dim = int(t.get("page_bg_dim") or 0) / 100.0
+    except (TypeError, ValueError):
+        dim = 0.0
+    if dim > 0:
+        veil = _hex_to_rgba(t["page_bg_from"], dim)
+        layers.append("linear-gradient(%s,%s)" % (veil, veil))
+    layers.append("url('%s')" % url)
+    mode = t.get("page_bg_mode") or "cover"
+    if mode == "tile":
+        size, repeat, attach = "auto", "repeat", "scroll"
+    else:
+        size, repeat, attach = mode, "no-repeat", "fixed"
+    return ("body{background-color:%s;background-image:%s;background-size:%s;"
+            "background-position:center;background-repeat:%s;background-attachment:%s;}"
+            % (t["page_bg_to"], ",".join(layers), size, repeat, attach))
+
+
+def _logo_rule(t: dict, assets: dict) -> str:
+    """有 Logo 就把左上角的文字方塊換成圖片。"""
+    url = str(assets.get("logo") or "")
+    if not ASSET_URL_RE.match(url):
+        return "/* 尚未上傳 Logo，左上角維持文字方塊 */"
+    try:
+        size = max(24, min(240, int(t.get("logo_size") or 72)))
+        radius = max(0, min(120, int(t.get("logo_radius") or 16)))
+    except (TypeError, ValueError):
+        size, radius = 72, 16
+    return (".brand-mark{width:%dpx;height:%dpx;flex:0 0 auto;border-radius:%dpx;border-color:transparent;"
+            "background:url('%s') center/contain no-repeat;font-size:0;color:transparent;}"
+            % (size, size, radius, url))
+
+
+def _avatar_rules(t: dict, assets: dict) -> str:
+    """把對話框兩側的圓形文字頭像換成圖片；沒上傳就完全不動。"""
+    ai = str(assets.get("avatar_ai") or "")
+    me = str(assets.get("avatar_user") or "")
+    has_ai, has_me = bool(ASSET_URL_RE.match(ai)), bool(ASSET_URL_RE.match(me))
+    if not (has_ai or has_me):
+        return "/* 尚未上傳對話頭像，維持原本的 AI / 你 文字圓圈 */"
+    try:
+        size = max(24, min(120, int(t.get("avatar_size") or 43)))
+    except (TypeError, ValueError):
+        size = 43
+    skin = "background:url('%s') center/contain no-repeat;border-color:transparent;font-size:0;color:transparent;"
+    # .user-avatar 同時帶著 .avatar，所以用 :not() 與 .avatar.user-avatar 拉開兩者
+    rules = [".avatar{width:%dpx;height:%dpx;}" % (size, size)]
+    if has_ai:
+        rules.append(".avatar:not(.user-avatar){%s}" % (skin % ai))
+    if has_me:
+        rules.append(".avatar.user-avatar{%s}" % (skin % me))
+    return "\n".join(rules)
+
+
 def build_css(cfg: dict = None) -> str:
     cfg = cfg or load_config()
     t = dict(DEFAULT_THEME)
     t.update(cfg.get("theme") or {})
+    assets = cfg.get("assets") or {}
     custom = cfg.get("custom_css") or ""
     return "\n".join([
         ":root{",
@@ -247,7 +353,7 @@ def build_css(cfg: dict = None) -> str:
         "  color:%s;" % t["ink"],
         "  font-size:%spx;" % t["base_font_size"],
         "}",
-        "body{background:linear-gradient(135deg,%s,%s);}" % (t["page_bg_from"], t["page_bg_to"]),
+        _body_background(t, assets),
         ".app-shell{background:%s;border-radius:%spx;border-color:%s;}" % (t["paper"], t["radius"], t["line"]),
         ".topbar{border-bottom-color:%s;}" % t["line"],
         ".brand-mark{color:%s;border-color:%s;}" % (t["brand_color"], t["line"]),
@@ -276,16 +382,34 @@ def build_css(cfg: dict = None) -> str:
         "#status{color:%s;}" % t["accent"],
         ".disclaimer{color:%s;}" % t["disclaimer_color"],
         ".ticket-dialog .primary{background:%s;color:%s;}" % (t["btn_bg"], t["btn_text"]),
+        _logo_rule(t, assets),
+        _avatar_rules(t, assets),
         "/* ==== 自訂 CSS ==== */",
         custom,
         "",
     ])
 
 
+def css_override_exists() -> bool:
+    return CSS_OVERRIDE_PATH.exists()
+
+
+def render_site_css() -> str:
+    """前台實際拿到的 site-theme.css：有覆寫檔就用覆寫檔，否則即時產生。"""
+    if CSS_OVERRIDE_PATH.exists():
+        try:
+            return CSS_OVERRIDE_PATH.read_text(encoding="utf-8-sig")
+        except Exception:
+            pass
+    return build_css()
+
+
 def css_path(name: str) -> Path:
     """把檔名對應到 frontend 下的實體檔案，只允許白名單內的名稱。"""
     if name not in CSS_FILES:
         raise ValueError("不允許編輯這個檔案")
+    if name == GENERATED_CSS:
+        raise ValueError("site-theme.css 由系統即時產生，沒有實體檔案")
     path = (FRONTEND_DIR / name).resolve()
     if path.parent != FRONTEND_DIR.resolve():
         raise ValueError("路徑不合法")
@@ -308,6 +432,19 @@ def ensure_css_backup(name: str) -> bool:
 
 
 def read_css_file(name: str) -> dict:
+    if name == GENERATED_CSS:
+        overridden = CSS_OVERRIDE_PATH.exists()
+        content = render_site_css()
+        return {
+            "name": name,
+            "label": CSS_FILES[name],
+            "content": content,
+            "bytes": len(content.encode("utf-8")),
+            "exists": True,
+            "modified": overridden,
+            "has_backup": overridden,
+            "generated": True,
+        }
     path = css_path(name)
     content = path.read_text(encoding="utf-8-sig") if path.exists() else ""
     backup = _backup_path(name)
@@ -319,6 +456,7 @@ def read_css_file(name: str) -> dict:
         "exists": path.exists(),
         "modified": backup.exists() and backup.read_text(encoding="utf-8-sig") != content,
         "has_backup": backup.exists(),
+        "generated": False,
     }
 
 
@@ -355,6 +493,13 @@ def _bump_cache_version(name: str) -> None:
 
 
 def write_css_file(name: str, content: str) -> dict:
+    if name == GENERATED_CSS:
+        text = str(content or "")
+        if len(text.encode("utf-8")) > 400000:
+            raise ValueError("檔案內容過大")
+        CSS_OVERRIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CSS_OVERRIDE_PATH.write_text(text, encoding="utf-8")
+        return read_css_file(name)
     path = css_path(name)
     ensure_css_backup(name)
     text = str(content or "")
@@ -366,6 +511,11 @@ def write_css_file(name: str, content: str) -> dict:
 
 
 def restore_css_file(name: str) -> dict:
+    if name == GENERATED_CSS:
+        if not CSS_OVERRIDE_PATH.exists():
+            raise ValueError("site-theme.css 目前就是系統自動產生的版本，不需要還原")
+        CSS_OVERRIDE_PATH.unlink()
+        return read_css_file(name)
     path = css_path(name)
     backup = _backup_path(name)
     if not backup.exists():
@@ -373,6 +523,51 @@ def restore_css_file(name: str) -> dict:
     shutil.copy2(backup, path)
     _bump_cache_version(name)
     return read_css_file(name)
+
+
+def _remove_asset_file(url: str) -> None:
+    url = str(url or "")
+    if not ASSET_URL_RE.match(url):
+        return
+    path = ASSET_DIR / url[len(ASSET_URL_PREFIX):]
+    try:
+        if path.exists() and path.resolve().parent == ASSET_DIR.resolve():
+            path.unlink()
+    except Exception:
+        pass
+
+
+def save_asset(kind: str, filename: str, data: bytes) -> dict:
+    """存下上傳的圖片，並把網址寫進 site-config.json。"""
+    if kind not in ASSET_KINDS:
+        raise ValueError("不支援的圖片類型")
+    ext = Path(str(filename or "")).suffix.lower()
+    if ext not in ASSET_EXT:
+        raise ValueError("只接受 PNG / JPG / GIF / WEBP / SVG 圖片")
+    if not data:
+        raise ValueError("檔案是空的")
+    if len(data) > MAX_ASSET_BYTES:
+        raise ValueError("圖片請小於 3 MB")
+    ASSET_DIR.mkdir(parents=True, exist_ok=True)
+    name = "%s-%s%s" % (ASSET_KINDS[kind][0], datetime.now().strftime("%Y%m%d%H%M%S"), ext)
+    (ASSET_DIR / name).write_bytes(data)
+    cfg = load_config()
+    _remove_asset_file(cfg["assets"].get(kind))
+    cfg["assets"][kind] = ASSET_URL_PREFIX + name
+    return _write(cfg)
+
+
+def clear_asset(kind: str) -> dict:
+    if kind not in ASSET_KINDS:
+        raise ValueError("不支援的圖片類型")
+    cfg = load_config()
+    _remove_asset_file(cfg["assets"].get(kind))
+    cfg["assets"][kind] = ""
+    return _write(cfg)
+
+
+def asset_fields() -> list:
+    return [{"key": key, "label": spec[1], "hint": spec[2]} for key, spec in ASSET_KINDS.items()]
 
 
 def ensure_token() -> str:
@@ -397,7 +592,8 @@ def check_token(token: str) -> bool:
 
 
 def theme_fields() -> list:
-    return [{"key": key, "kind": spec[0], "default": spec[1], "label": spec[2], "group": spec[3]}
+    return [{"key": key, "kind": spec[0], "default": spec[1], "label": spec[2], "group": spec[3],
+             "options": list(spec[4]) if len(spec) > 4 else None}
             for key, spec in THEME_FIELDS.items()]
 
 

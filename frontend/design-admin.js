@@ -2,8 +2,30 @@
 (function () {
   var $ = function (s) { return document.querySelector(s); };
   var TOKEN_KEY = 'faq-design-token';
-  var token = sessionStorage.getItem(TOKEN_KEY) || '';
-  var config = null, themeFields = [], textFields = [], previewTimer = null;
+
+  /* 勾了「記住密碼」就存 localStorage（跨分頁、關瀏覽器也還在），
+     沒勾就只存 sessionStorage（關掉分頁就忘記）。無痕模式存不了也不影響這次操作。 */
+  function storedToken() {
+    try { return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || ''; }
+    catch (e) { return ''; }
+  }
+  function rememberToken(value, persist) {
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(TOKEN_KEY);
+      (persist ? localStorage : sessionStorage).setItem(TOKEN_KEY, value);
+    } catch (e) { /* 存不了就算了，這次仍可正常使用 */ }
+  }
+  function forgetToken() {
+    try { localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
+  }
+
+  var token = storedToken();
+  var config = null, themeFields = [], textFields = [], assetFields = [], previewTimer = null;
+  var overrideActive = false;
+  var RAW_THEME = 'site-theme.css';
+  var IMAGE_GROUP = '圖片';
+  var BG_MODE_LABELS = { cover: '填滿整頁（邊緣可能被裁切）', contain: '完整顯示（周圍可能留白）', tile: '小圖重複平鋪' };
 
   function esc(v) {
     return String(v == null ? '' : v)
@@ -33,18 +55,20 @@
       });
       if (!r.ok) { var d = await r.json().catch(function () { return {}; }); throw new Error(d.detail || '登入失敗'); }
       token = value;
-      sessionStorage.setItem(TOKEN_KEY, token);
+      rememberToken(token, $('#login-remember').checked);
       start();
     } catch (err) { $('#login-error').textContent = err.message; }
   });
 
   async function start() {
     var r = await fetch('/api/design/config', { headers: headers() });
-    if (!r.ok) { sessionStorage.removeItem(TOKEN_KEY); token = ''; $('#login-error').textContent = '密碼不正確或已失效'; return; }
+    if (!r.ok) { forgetToken(); token = ''; $('#login-error').textContent = '記住的密碼已失效，請重新輸入'; return; }
     var data = await r.json();
     config = data.config;
     themeFields = data.theme_fields;
     textFields = data.text_fields;
+    assetFields = data.asset_fields || [];
+    overrideActive = !!data.css_override;
     $('#login').hidden = true;
     $('#app').hidden = false;
     renderAll();
@@ -73,25 +97,99 @@
     $('#text-fields').innerHTML = html;
   }
 
-  function renderThemeFields() {
-    var html = groupBy(themeFields).map(function (g) {
+  function fieldHtml(f, value) {
+    var control;
+    if (f.kind === 'color') {
+      var hex = /^#[0-9a-fA-F]{6}$/.test(String(value)) ? value : '#ffffff';
+      control = '<div class="color-field"><input type="color" data-color-for="' + f.key + '" value="' + esc(hex) + '">'
+        + '<input type="text" data-theme="' + f.key + '" value="' + esc(value) + '" spellcheck="false"></div>';
+    } else if (f.kind === 'num') {
+      control = '<div class="num-field"><input type="range" min="0" max="60" data-range-for="' + f.key + '" value="' + esc(value) + '">'
+        + '<input type="number" min="0" max="200" data-theme="' + f.key + '" value="' + esc(value) + '"></div>';
+    } else if (f.kind === 'select') {
+      control = '<select data-theme="' + f.key + '">' + (f.options || []).map(function (o) {
+        return '<option value="' + esc(o) + '"' + (String(value) === o ? ' selected' : '') + '>'
+          + esc(BG_MODE_LABELS[o] || o) + '</option>';
+      }).join('') + '</select>';
+    } else {
+      control = '<input type="text" data-theme="' + f.key + '" value="' + esc(value) + '" spellcheck="false">';
+    }
+    return '<div class="field"><label>' + esc(f.label) + '</label>' + control + '</div>';
+  }
+
+  function renderThemeGroups(target, rows) {
+    $(target).innerHTML = groupBy(rows).map(function (g) {
       return '<div class="group"><h3>' + esc(g.name) + '</h3>' + g.rows.map(function (f) {
-        var value = config.theme[f.key] == null ? f.default : config.theme[f.key];
-        var control;
-        if (f.kind === 'color') {
-          var hex = /^#[0-9a-fA-F]{6}$/.test(String(value)) ? value : '#ffffff';
-          control = '<div class="color-field"><input type="color" data-color-for="' + f.key + '" value="' + esc(hex) + '">'
-            + '<input type="text" data-theme="' + f.key + '" value="' + esc(value) + '" spellcheck="false"></div>';
-        } else if (f.kind === 'num') {
-          control = '<div class="num-field"><input type="range" min="0" max="60" data-range-for="' + f.key + '" value="' + esc(value) + '">'
-            + '<input type="number" min="0" max="200" data-theme="' + f.key + '" value="' + esc(value) + '"></div>';
-        } else {
-          control = '<input type="text" data-theme="' + f.key + '" value="' + esc(value) + '" spellcheck="false">';
-        }
-        return '<div class="field"><label>' + esc(f.label) + '</label>' + control + '</div>';
+        return fieldHtml(f, config.theme[f.key] == null ? f.default : config.theme[f.key]);
       }).join('') + '</div>';
     }).join('');
-    $('#theme-fields').innerHTML = html;
+  }
+
+  /* 「圖片」這一組欄位改放到 Logo / 背景圖 分頁，跟上傳區擺在一起 */
+  function renderThemeFields() {
+    renderThemeGroups('#theme-fields', themeFields.filter(function (f) { return f.group !== IMAGE_GROUP; }));
+    renderThemeGroups('#asset-theme-fields', themeFields.filter(function (f) { return f.group === IMAGE_GROUP; }));
+  }
+
+  /* ---------------- Logo / 背景圖 ---------------- */
+  function renderAssets() {
+    var assets = (config && config.assets) || {};
+    var stamp = Date.now();
+    $('#asset-cards').innerHTML = assetFields.map(function (f) {
+      var url = assets[f.key] || '';
+      var cls = 'asset-preview' + (f.key === 'page_bg' ? ' cover' : ' checker');
+      var box = url
+        ? '<div class="' + cls + '"><img src="' + esc(url) + '?t=' + stamp + '" alt=""></div>'
+        : '<div class="asset-preview empty">尚未上傳</div>';
+      return '<div class="asset-card">'
+        + '<div class="asset-info"><strong>' + esc(f.label) + '</strong><small>' + esc(f.hint) + '</small>'
+        + (url ? '<code>' + esc(url) + '</code>' : '') + '</div>'
+        + box
+        + '<div class="asset-actions">'
+        + '<label class="ghost upload">選擇圖片…<input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,image/*" data-asset="' + esc(f.key) + '" hidden></label>'
+        + '<button type="button" class="ghost danger" data-asset-clear="' + esc(f.key) + '"' + (url ? '' : ' disabled') + '>移除圖片</button>'
+        + '</div></div>';
+    }).join('');
+  }
+
+  function detailOf(d, fallback) {
+    return typeof (d && d.detail) === 'string' ? d.detail : fallback;
+  }
+
+  async function uploadAsset(kind, file) {
+    var form = new FormData();
+    form.append('file', file);
+    try {
+      var r = await fetch('/api/design/asset/' + encodeURIComponent(kind), {
+        method: 'POST', headers: { 'X-Design-Token': token }, body: form
+      });
+      var d = await r.json();
+      if (!r.ok) throw new Error(detailOf(d, '上傳失敗'));
+      config = d.config;
+      renderAssets();
+      $('#preview').contentWindow.location.reload();
+      toast('圖片已上傳並套用到前台');
+    } catch (err) { toast(err.message, true); }
+  }
+
+  async function removeAsset(kind) {
+    if (!confirm('確定移除這張圖片？前台會回到原本的樣式。')) return;
+    try {
+      var r = await fetch('/api/design/asset/' + encodeURIComponent(kind), {
+        method: 'DELETE', headers: headers()
+      });
+      var d = await r.json();
+      if (!r.ok) throw new Error(detailOf(d, '移除失敗'));
+      config = d.config;
+      renderAssets();
+      $('#preview').contentWindow.location.reload();
+      toast('已移除圖片');
+    } catch (err) { toast(err.message, true); }
+  }
+
+  function updateOverrideNote() {
+    var note = $('#override-note');
+    if (note) note.hidden = !overrideActive;
   }
 
   function rowHtml(kind, row) {
@@ -120,6 +218,8 @@
   function renderAll() {
     renderTextFields();
     renderThemeFields();
+    renderAssets();
+    updateOverrideNote();
     renderRows();
     $('#custom-css').value = config.custom_css || '';
     $('#saved-at').textContent = config.updated_at ? ('最後儲存：' + config.updated_at) : '尚未儲存過';
@@ -167,6 +267,8 @@
           doc.head.appendChild(style);
         }
         style.textContent = css;
+        // 正在手改 site-theme.css 時，以「原始 CSS 檔」編輯器裡的內容為準
+        style.disabled = (currentFile === RAW_THEME);
         var link = doc.getElementById('site-theme');
         if (link) link.disabled = true;
       }
@@ -222,7 +324,19 @@
         || el.id === 'custom-css' || el.dataset.field) schedulePreview();
   });
 
+  document.addEventListener('change', function (e) {
+    var el = e.target;
+    if (el.dataset && el.dataset.asset && el.files && el.files[0]) {
+      uploadAsset(el.dataset.asset, el.files[0]);
+      el.value = '';
+      return;
+    }
+    if (el.dataset && el.dataset.theme) schedulePreview();
+  });
+
   document.addEventListener('click', function (e) {
+    var clearBtn = e.target.closest('[data-asset-clear]');
+    if (clearBtn && !clearBtn.disabled) removeAsset(clearBtn.dataset.assetClear);
     var tab = e.target.closest('.tab');
     if (tab) {
       document.querySelectorAll('.tab').forEach(function (t) { t.classList.toggle('active', t === tab); });
@@ -276,9 +390,18 @@
       config = d.config;
       renderAll();
       $('#preview').contentWindow.location.reload();
-      toast('已儲存並套用到前台');
+      toast(overrideActive
+        ? '已儲存；但 site-theme.css 目前是手動覆寫版本，色票設定不會生效'
+        : '已儲存並套用到前台');
     } catch (err) { toast(err.message, true); }
     finally { btn.disabled = false; }
+  });
+
+  $('#btn-logout').addEventListener('click', function () {
+    if (fileDirty() && !confirm('「' + currentFile + '」有尚未儲存的修改，確定要登出嗎？')) return;
+    currentFile = '';
+    forgetToken();
+    location.reload();
   });
 
   $('#btn-reset').addEventListener('click', async function () {
@@ -359,6 +482,10 @@
       if (!r.ok) throw new Error('讀取失敗');
       cssFiles = (await r.json()).files || [];
       cssLoaded = true;
+      cssFiles.forEach(function (f) {
+        if (f.name === RAW_THEME) overrideActive = !!f.modified;
+      });
+      updateOverrideNote();
       renderFileChips();
       if (!currentFile && cssFiles.length) openFile(cssFiles[0].name);
     } catch (err) { toast('讀取 CSS 檔清單失敗', true); }
@@ -377,6 +504,7 @@
       $('#file-label').textContent = d.label + (d.modified ? '　·　已被修改過' : '');
       $('#file-save').disabled = false;
       $('#file-restore').disabled = !d.has_backup;
+      if (name === RAW_THEME) { overrideActive = !!d.modified; updateOverrideNote(); }
       renderFileChips();
       applyRawPreview();
     } catch (err) { toast(err.message, true); }
@@ -423,6 +551,7 @@
       savedContent = d.content;
       $('#file-label').textContent = d.label + (d.modified ? '　·　已被修改過' : '');
       $('#file-restore').disabled = !d.has_backup;
+      if (currentFile === RAW_THEME) { overrideActive = !!d.modified; updateOverrideNote(); }
       await loadCssList();
       $('#preview').contentWindow.location.reload();
       toast(currentFile + ' 已儲存並套用');
@@ -441,6 +570,7 @@
       savedContent = d.content;
       $('#file-editor').value = d.content;
       $('#file-label').textContent = d.label;
+      if (currentFile === RAW_THEME) { overrideActive = false; updateOverrideNote(); }
       await loadCssList();
       $('#preview').contentWindow.location.reload();
       toast(currentFile + ' 已還原成原始版本');

@@ -30,3 +30,8 @@ data/css-original/
 
 # temporary working backups (Claude session)
 *.bak-*
+
+# 後台上傳的圖片與手改的 site-theme.css（屬於各機器的執行期資料）
+data/design-assets/
+data/site-theme-override.css
+*.bak2-*

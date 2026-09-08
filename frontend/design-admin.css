@@ -90,6 +90,31 @@ body{margin:0;min-height:100vh;background:linear-gradient(135deg,#eeeae4,#ddd8d0
 #file-editor{width:100%;min-height:calc(100vh - 400px);border:1.5px solid #ccc4ba;border-radius:11px;padding:14px;font:12.5px/1.65 ui-monospace,Consolas,"Courier New",monospace;background:#fdfcfa;resize:vertical;white-space:pre;overflow-wrap:normal;overflow-x:auto}
 #file-editor:focus{outline:0;border-color:var(--accent)}
 
+.login-card label.remember{display:flex;align-items:center;gap:8px;margin-top:13px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer}
+.login-card label.remember input{width:16px;height:16px;flex:0 0 auto;margin:0;padding:0;accent-color:var(--accent);cursor:pointer}
+
+.hint.warn{background:#fdf1ec;border-left-color:#ba3828;color:#8c3120}
+.hint.warn code{border-color:#e2c3ba}
+
+/* ---------- Logo / 背景圖 ---------- */
+.asset-cards{display:grid;gap:12px;margin-bottom:8px}
+.asset-card{display:grid;grid-template-columns:1fr 132px;grid-template-areas:"info preview" "actions preview";gap:10px 14px;border:1.5px solid #ccc4ba;border-radius:12px;padding:14px;background:#fdfcfa}
+.asset-info{grid-area:info}
+.asset-info strong{display:block;font-size:14px;margin-bottom:3px}
+.asset-info small{display:block;color:var(--muted);font-size:12px;line-height:1.6}
+.asset-info code{display:inline-block;margin-top:6px;font-size:11px;color:var(--muted);background:#fff;border:1px solid #e0d8ce;border-radius:4px;padding:1px 6px;word-break:break-all}
+.asset-actions{grid-area:actions;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.asset-actions .ghost{font-size:12.5px;padding:8px 13px}
+.asset-actions button:disabled{opacity:.45;cursor:not-allowed}
+.asset-actions label.upload{cursor:pointer}
+.asset-preview{grid-area:preview;height:96px;border:1.5px dashed #c9c1b7;border-radius:10px;display:grid;place-items:center;overflow:hidden;background:#fff}
+.asset-preview img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+.asset-preview.cover img{width:100%;height:100%;object-fit:cover}
+.asset-preview.checker{background-image:linear-gradient(45deg,#eee 25%,transparent 25%),linear-gradient(-45deg,#eee 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#eee 75%),linear-gradient(-45deg,transparent 75%,#eee 75%);background-size:14px 14px;background-position:0 0,0 7px,7px -7px,-7px 0}
+.asset-preview.empty{color:var(--muted);font-size:12px}
+.field select{width:100%;border:1.5px solid #ccc4ba;border-radius:9px;padding:9px 11px;font:14px inherit;background:#fff}
+.field select:focus{outline:0;border-color:var(--accent)}
+
 /* ---------- 預覽區 ---------- */
 .preview{display:flex;flex-direction:column;min-width:0;min-height:0;background:#e6e1da}
 .preview-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;background:var(--paper);border-bottom:1.5px solid var(--line);flex-wrap:wrap}
